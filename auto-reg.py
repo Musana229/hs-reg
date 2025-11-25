@@ -34,7 +34,7 @@ STOP_FLAG = False
 # ==========================================
 LANG = {
     "de": {
-        "title": "FAU HSP BOT v38.0 (Fixes)",
+        "title": "FAU HSP BOT v38.0 (Logic Fix)",
         "tab_run": "🚀 Dashboard",
         "tab_data": "👤 Meine Daten",
         "tab_urls": "🔗 Kurs URLs",
@@ -62,7 +62,7 @@ LANG = {
         "status_values": ["S-UNIE : StudentIn der UNI Erlangen", "S-TH : StudentIn der TH-Nürnberg", "S-SPORT : SportstudentIn", "B-UNIE : Beschäftigte/r der UNI Erlangen", "Extern : Fördervereinsmitglied"]
     },
     "en": {
-        "title": "FAU HSP BOT v38.0 (Fixes)",
+        "title": "FAU HSP BOT v38.0 (Logic Fix)",
         "tab_run": "🚀 Dashboard",
         "tab_data": "👤 My Profile",
         "tab_urls": "🔗 Course URLs",
@@ -128,7 +128,6 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
         options = uc.ChromeOptions()
         options.add_argument("--start-maximized")
         options.add_argument("--disable-popup-blocking")
-        # options.add_experimental_option("detach", True) # REMOVED to prevent crash on v142
         
         detected_ver = get_chrome_major_version()
         if detected_ver:
@@ -152,24 +151,22 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
                 btn = btns[0]
                 if "ausgebucht" in btn.get_attribute("value").lower(): driver.refresh(); continue
                 
-                # CLICK AND SWITCH
                 driver.execute_script("arguments[0].click();", btn)
-                
-                # Wait for new tab
                 wait.until(EC.number_of_windows_to_be(2))
                 
-                # Switch to new tab
+                # --- CRITICAL FIX: SWITCH & WAKE UP ---
                 for w in driver.window_handles:
                     if w != main_window: 
                         driver.switch_to.window(w)
                         break
                 
-                # --- FIX: WAKE UP THE TAB ---
-                # Immediately interact with the page to force the timer to run
+                # Force the window to front and click body to wake JS
+                driver.switch_to.window(driver.current_window_handle)
                 driver.execute_script("window.focus();")
                 try: driver.find_element(By.TAG_NAME, "body").click()
                 except: pass
                 
+                log_callback(f"[{target_kurs_nr}] Tab Open & Focused")
                 break
             except:
                 if STOP_FLAG: return
@@ -265,7 +262,7 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
 
             try: driver.switch_to.alert.accept() 
             except: pass
-            time.sleep(0.05) # Super fast loop
+            time.sleep(0.05) 
 
         while not STOP_FLAG: time.sleep(1)
 
@@ -285,7 +282,7 @@ class ModernApp(ctk.CTk):
         self.current_lang = "de"
         self.saved = {}
         self.url_entries = [] 
-        self.course_map = {}
+        # Removed global course_map to prevent collision
 
         self.title(LANG[self.current_lang]["title"])
         self.geometry("600x750")
@@ -342,7 +339,7 @@ class ModernApp(ctk.CTk):
         if entry in self.url_entries: self.url_entries.remove(entry)
         frame.destroy()
 
-    # --- TAB 2: DATA ---
+    # --- TAB 2: PROFILE DATA ---
     def setup_tab_data(self):
         scroll = ctk.CTkScrollableFrame(self.tab_data)
         scroll.pack(fill="both", expand=True)
@@ -373,6 +370,7 @@ class ModernApp(ctk.CTk):
         add_sec(self.t("sec_bank"))
         add_field("iban", self.t("lbl_iban"))
         add_field("bic", self.t("lbl_bic"))
+        
         f = ctk.CTkFrame(scroll, fg_color="transparent"); f.pack(fill="x", pady=2)
         ctk.CTkLabel(f, text=self.t("lbl_holder"), width=100, anchor="w").pack(side="left")
         self.e_inhaber = ctk.CTkEntry(f)
@@ -475,6 +473,7 @@ class ModernApp(ctk.CTk):
                             tag = row.find_element(By.CLASS_NAME, "bs_stag").text
                             zeit = row.find_element(By.CLASS_NAME, "bs_szeit").text
                             det = row.find_element(By.CLASS_NAME, "bs_sdet").text
+                            # KEY FIX: Tuple is now (CourseNr, DisplayText, SpecificURL)
                             found.append((nr, f"{nr} | {tag} {zeit} | {det}", url))
                         except: continue
                 except: pass
@@ -488,19 +487,27 @@ class ModernApp(ctk.CTk):
             ctk.CTkLabel(self.scroll_courses, text="No courses found.").pack()
             return
 
+        # courses is a list of (nr, text, url)
         for nr, text, url in courses:
-            self.course_map[nr] = url
+            # We embed the SPECIFIC URL into the checkbox variable value, not a global map
+            # We'll use a workaround: Store the URL in a hidden dictionary attached to the widget instance?
+            # Simpler: Store (nr, url) in a list that aligns with the checkboxes
+            
             var = ctk.StringVar(value="off")
             cb = ctk.CTkCheckBox(self.scroll_courses, text=text, variable=var, onvalue="on", offvalue="off")
             cb.pack(fill="x", pady=2, anchor="w")
-            self.course_checkboxes.append((nr, var))
+            
+            # FIX: Store the tuple (nr, url, var)
+            self.course_checkboxes.append((nr, url, var))
 
     def start_bots(self):
         self.save_data()
         global STOP_FLAG
         
-        selected = [nr for nr, var in self.course_checkboxes if var.get() == "on"]
-        if not selected: return messagebox.showerror("Error", "Select a course!")
+        # FIX: Select based on the new tuple structure
+        selected_items = [(nr, url) for nr, url, var in self.course_checkboxes if var.get() == "on"]
+        
+        if not selected_items: return messagebox.showerror("Error", "Select a course!")
 
         bot_data = self.saved.copy()
         bot_data["geschlecht"] = bot_data["geschlecht"].split(" ")[0]
@@ -510,13 +517,11 @@ class ModernApp(ctk.CTk):
         STOP_FLAG = False
         self.running_threads = []
         
-        for i, nr in enumerate(selected):
-            url = self.course_map.get(nr)
-            if url:
-                if i > 0: time.sleep(2)
-                t = threading.Thread(target=run_bot_thread, args=(url, nr, bot_data, self.on_success, self.update_log))
-                self.running_threads.append(t)
-                t.start()
+        for i, (nr, url) in enumerate(selected_items):
+            if i > 0: time.sleep(2)
+            t = threading.Thread(target=run_bot_thread, args=(url, nr, bot_data, self.on_success, self.update_log))
+            self.running_threads.append(t)
+            t.start()
 
         self.btn_start.configure(state="disabled")
         self.btn_stop.configure(state="normal")
