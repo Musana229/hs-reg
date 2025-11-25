@@ -90,7 +90,20 @@ LANG = {
         "status_values": ["S-UNIE : Student at FAU Erlangen", "S-TH : Student at TH Nuremberg", "S-SPORT : Sports Student", "B-UNIE : Employee at FAU", "Extern : Association Member"]
     }
 }
-
+# ==========================================
+# PLACEHOLDERS
+# ==========================================
+PLACEHOLDERS = {
+    "vorname": "Adi",
+    "nachname": "Something else than Adi",
+    "email": "Adi.WhateverHisSurnameIs@fau.de",
+    "strasse": "Adi Allee 4",
+    "ort": "91054 Erlangen",
+    "iban": "DE00 1234 5678 900 0000",
+    "bic": "MARKDEF1XXX",
+    "inhaber": "Adi Mustermann",
+    "statnr": "1234567" # Note: match the key used in add_field ('statnr')
+}
 # ==========================================
 # HELPERS
 # ==========================================
@@ -396,13 +409,14 @@ class ModernApp(ctk.CTk):
         def add_field(key, label):
             f = ctk.CTkFrame(scroll, fg_color="transparent"); f.pack(fill="x", pady=2)
             ctk.CTkLabel(f, text=label, width=120, anchor="w").pack(side="left", padx=5)
-            e = ctk.CTkEntry(f)
+            placeholder_text = PLACEHOLDERS.get(key, "")
+            e = ctk.CTkEntry(f, placeholder_text=placeholder_text)
             e.pack(side="right", expand=True, fill="x", padx=5)
             if key in self.saved: e.insert(0, self.saved[key])
             setattr(self, f"e_{key}", e)
 
         add_sec(self.t("sec_pers"))
-        add_field("vorname", self.t("lbl_fname"))
+        add_field("vorname", self.t("lbl_fname"),)
         add_field("nachname", self.t("lbl_lname"))
         add_field("email", self.t("lbl_mail"))
         add_field("strasse", self.t("lbl_street"))
@@ -464,7 +478,7 @@ class ModernApp(ctk.CTk):
         f_btn.pack(fill="x", padx=10, pady=20)
         
         self.btn_start = ctk.CTkButton(f_btn, text=self.t("btn_start"), command=self.start_bots, 
-                                     font=("Arial", 16, "bold"), height=50, fg_color="green", hover_color="darkgreen")
+                                    font=("Arial", 16, "bold"), height=50, fg_color="green", hover_color="darkgreen")
         self.btn_start.pack(side="left", fill="x", expand=True, padx=5)
         
         self.btn_stop = ctk.CTkButton(f_btn, text=self.t("btn_stop"), command=self.stop_bots,
