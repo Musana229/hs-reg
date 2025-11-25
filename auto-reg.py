@@ -34,7 +34,8 @@ STOP_FLAG = False
 # ==========================================
 LANG = {
     "de": {
-        "title": "FAU HSP BOT v38.0 (Logic Fix)",
+        "title": "FAU HSP BOT v39.0 (Final & Multi-Lang)",
+        "header_lang": "Sprache / Language:",
         "tab_run": "🚀 Dashboard",
         "tab_data": "👤 Meine Daten",
         "tab_urls": "🔗 Kurs URLs",
@@ -62,7 +63,8 @@ LANG = {
         "status_values": ["S-UNIE : StudentIn der UNI Erlangen", "S-TH : StudentIn der TH-Nürnberg", "S-SPORT : SportstudentIn", "B-UNIE : Beschäftigte/r der UNI Erlangen", "Extern : Fördervereinsmitglied"]
     },
     "en": {
-        "title": "FAU HSP BOT v38.0 (Logic Fix)",
+        "title": "FAU HSP BOT v39.0 (Final & Multi-Lang)",
+        "header_lang": "Language / Sprache:",
         "tab_run": "🚀 Dashboard",
         "tab_data": "👤 My Profile",
         "tab_urls": "🔗 Course URLs",
@@ -92,7 +94,7 @@ LANG = {
 }
 
 # ==========================================
-# SYSTEM HELPERS
+# HELPERS
 # ==========================================
 def force_nuke_cache():
     try:
@@ -116,7 +118,7 @@ def get_chrome_major_version():
     except: return None
 
 # ==========================================
-# BOT LOGIC
+# BOT LOGIC (Fix: Tab Focus + URL Mapping)
 # ==========================================
 def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_callback):
     global STOP_FLAG
@@ -151,22 +153,21 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
                 btn = btns[0]
                 if "ausgebucht" in btn.get_attribute("value").lower(): driver.refresh(); continue
                 
+                # Click & Switch
                 driver.execute_script("arguments[0].click();", btn)
                 wait.until(EC.number_of_windows_to_be(2))
                 
-                # --- CRITICAL FIX: SWITCH & WAKE UP ---
                 for w in driver.window_handles:
                     if w != main_window: 
                         driver.switch_to.window(w)
                         break
                 
-                # Force the window to front and click body to wake JS
+                # FORCE WAKE UP TAB
                 driver.switch_to.window(driver.current_window_handle)
                 driver.execute_script("window.focus();")
                 try: driver.find_element(By.TAG_NAME, "body").click()
                 except: pass
                 
-                log_callback(f"[{target_kurs_nr}] Tab Open & Focused")
                 break
             except:
                 if STOP_FLAG: return
@@ -178,7 +179,7 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
 
         if STOP_FLAG: return
 
-        # 2. FORM FILL (DURING TIMER)
+        # 2. FORM FILL
         try: wait.until(EC.visibility_of_element_located((By.ID, "BS_F1100")))
         except: return
 
@@ -218,13 +219,11 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
         try: driver.find_element(By.NAME, "tnbed").click()
         except: pass
 
-        # WAIT FOR TIMER (NATURAL)
+        # Wait Timer
         log_callback(f"[{target_kurs_nr}] Waiting Timer...")
         try:
-            # Wait until the button is visible/clickable naturally
             submit_btn = WebDriverWait(driver, 20).until(EC.visibility_of_element_located((By.ID, "bs_submit")))
-            if submit_btn.is_displayed(): 
-                submit_btn.click()
+            if submit_btn.is_displayed(): submit_btn.click()
         except: pass
 
         # 3. TRAP LOOP
@@ -232,15 +231,13 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
         start_time = time.time()
         
         while time.time() - start_time < 120 and not STOP_FLAG:
-            # Success? (Button disappear or Page 3 element)
+            # Success?
             try:
                 final_btn = driver.find_elements(By.XPATH, "//input[@value='verbindlich buchen']")
                 if final_btn:
                     log_callback(f"[{target_kurs_nr}] SUCCESS (Page 3)!")
                     time.sleep(1) 
                     final_btn[0].click()
-                    
-                    # Check if final button gone
                     time.sleep(2)
                     if not final_btn[0].is_displayed():
                         if success_callback: success_callback(target_kurs_nr)
@@ -262,7 +259,7 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
 
             try: driver.switch_to.alert.accept() 
             except: pass
-            time.sleep(0.05) 
+            time.sleep(0.05)
 
         while not STOP_FLAG: time.sleep(1)
 
@@ -282,24 +279,50 @@ class ModernApp(ctk.CTk):
         self.current_lang = "de"
         self.saved = {}
         self.url_entries = [] 
-        # Removed global course_map to prevent collision
+        self.course_checkboxes = [] # Holds tuples (nr, url, var)
 
         self.title(LANG[self.current_lang]["title"])
-        self.geometry("600x750")
+        self.geometry("600x800")
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
 
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, 'r') as f: self.saved = json.load(f)
                 if "language" in self.saved: self.current_lang = self.saved["language"]
+                
                 if "last_urls" in self.saved and "url_list" not in self.saved:
                     raw = self.saved["last_urls"]
                     self.saved["url_list"] = [u.strip() for u in raw.split('\n') if u.strip()]
             except: pass
+        
+        self.setup_ui()
 
+    def t(self, key): return LANG[self.current_lang].get(key, key)
+
+    def change_language(self, choice):
+        new_lang = "de" if choice == "Deutsch" else "en"
+        if new_lang != self.current_lang:
+            self.current_lang = new_lang
+            self.setup_ui()
+
+    def setup_ui(self):
+        # Clear existing
+        for widget in self.winfo_children(): widget.destroy()
+
+        # --- HEADER (Lang Switch) ---
+        header = ctk.CTkFrame(self, height=40)
+        header.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
+        
+        ctk.CTkLabel(header, text=self.t("title"), font=("Arial", 16, "bold")).pack(side="left", padx=10)
+        
+        combo_lang = ctk.CTkComboBox(header, values=["Deutsch", "English"], command=self.change_language, width=100)
+        combo_lang.pack(side="right", padx=5, pady=5)
+        combo_lang.set("Deutsch" if self.current_lang == "de" else "English")
+
+        # --- TABS ---
         self.tabview = ctk.CTkTabview(self)
-        self.tabview.pack(fill="both", expand=True, padx=10, pady=10)
+        self.tabview.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
         
         self.tab_run = self.tabview.add(LANG[self.current_lang]["tab_run"])
         self.tab_data = self.tabview.add(LANG[self.current_lang]["tab_data"])
@@ -309,13 +332,12 @@ class ModernApp(ctk.CTk):
         self.setup_tab_data()
         self.setup_tab_run()
 
-    def t(self, key): return LANG[self.current_lang].get(key, key)
-
     # --- TAB 3: URL MANAGER ---
     def setup_tab_urls(self):
         self.scroll_urls = ctk.CTkScrollableFrame(self.tab_urls, label_text="Kurs URLs")
         self.scroll_urls.pack(fill="both", expand=True, padx=10, pady=10)
         
+        self.url_entries = [] # Reset list
         saved_urls = self.saved.get("url_list", [])
         if not saved_urls: self.add_url_row("") 
         else:
@@ -339,7 +361,7 @@ class ModernApp(ctk.CTk):
         if entry in self.url_entries: self.url_entries.remove(entry)
         frame.destroy()
 
-    # --- TAB 2: PROFILE DATA ---
+    # --- TAB 2: DATA ---
     def setup_tab_data(self):
         scroll = ctk.CTkScrollableFrame(self.tab_data)
         scroll.pack(fill="both", expand=True)
@@ -409,7 +431,7 @@ class ModernApp(ctk.CTk):
 
         self.scroll_courses = ctk.CTkScrollableFrame(self.tab_run, label_text="Available Courses")
         self.scroll_courses.pack(fill="both", expand=True, padx=10, pady=5)
-        self.course_checkboxes = []
+        self.course_checkboxes = [] # Reset UI list
 
         self.lbl_status = ctk.CTkLabel(self.tab_run, text=self.t("status_ready"), font=("Arial", 14))
         self.lbl_status.pack(pady=5)
@@ -446,8 +468,9 @@ class ModernApp(ctk.CTk):
         urls = self.saved.get("url_list", [])
         if not urls: return messagebox.showerror("Error", "No URLs in 'URLs' tab!")
         
+        # Clean old list UI
         for w in self.scroll_courses.winfo_children(): w.destroy()
-        self.course_checkboxes = []
+        self.course_checkboxes = [] # Clear list mapping
         self.lbl_status.configure(text="Scanning...")
         
         threading.Thread(target=self._scan_thread, args=(urls,), daemon=True).start()
@@ -473,7 +496,7 @@ class ModernApp(ctk.CTk):
                             tag = row.find_element(By.CLASS_NAME, "bs_stag").text
                             zeit = row.find_element(By.CLASS_NAME, "bs_szeit").text
                             det = row.find_element(By.CLASS_NAME, "bs_sdet").text
-                            # KEY FIX: Tuple is now (CourseNr, DisplayText, SpecificURL)
+                            # STORE (NR, TEXT, SPECIFIC_URL)
                             found.append((nr, f"{nr} | {tag} {zeit} | {det}", url))
                         except: continue
                 except: pass
@@ -487,25 +510,20 @@ class ModernApp(ctk.CTk):
             ctk.CTkLabel(self.scroll_courses, text="No courses found.").pack()
             return
 
-        # courses is a list of (nr, text, url)
+        # Course tuple is (nr, text, url)
         for nr, text, url in courses:
-            # We embed the SPECIFIC URL into the checkbox variable value, not a global map
-            # We'll use a workaround: Store the URL in a hidden dictionary attached to the widget instance?
-            # Simpler: Store (nr, url) in a list that aligns with the checkboxes
-            
             var = ctk.StringVar(value="off")
             cb = ctk.CTkCheckBox(self.scroll_courses, text=text, variable=var, onvalue="on", offvalue="off")
             cb.pack(fill="x", pady=2, anchor="w")
-            
-            # FIX: Store the tuple (nr, url, var)
-            self.course_checkboxes.append((nr, url, var))
+            # FIX: Store URL directly in the list item
+            self.course_checkboxes.append((nr, var, url))
 
     def start_bots(self):
         self.save_data()
         global STOP_FLAG
         
-        # FIX: Select based on the new tuple structure
-        selected_items = [(nr, url) for nr, url, var in self.course_checkboxes if var.get() == "on"]
+        # FIX: Filter based on var and grab associated URL
+        selected_items = [(nr, url) for nr, var, url in self.course_checkboxes if var.get() == "on"]
         
         if not selected_items: return messagebox.showerror("Error", "Select a course!")
 
