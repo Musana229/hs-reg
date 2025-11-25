@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 import json
 import os
 import time
@@ -110,6 +110,7 @@ LANG = {
     }
 }
 
+
 PLACEHOLDERS = {
     "vorname": "Adi",
     "nachname": "Something else than Adi",
@@ -159,6 +160,7 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
         options = uc.ChromeOptions()
         options.add_argument("--start-maximized")
         options.add_argument("--disable-popup-blocking")
+        # FIX: Removed 'detach' to prevent crash on Chrome 142
         
         detected_ver = get_chrome_major_version()
         if detected_ver:
@@ -187,6 +189,7 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
                 for w in driver.window_handles:
                     if w != main_window: driver.switch_to.window(w); break
                 
+                # Wake up tab
                 driver.switch_to.window(driver.current_window_handle)
                 driver.execute_script("window.focus();")
                 try: driver.find_element(By.TAG_NAME, "body").click()
@@ -300,7 +303,7 @@ class ModernApp(ctk.CTk):
         self.current_lang = "de"
         self.saved = {}
         self.url_entries = [] 
-        self.course_map = {}
+        self.course_map = {} # Stores tuple (nr, url, var)
         
         self.frames_loading = self.load_gif(GIF_LOADING)
         self.frames_success = self.load_gif(GIF_SUCCESS)
@@ -378,6 +381,7 @@ class ModernApp(ctk.CTk):
             for url in saved_urls: self.add_url_row(url)
         ctk.CTkButton(scroll, text=self.t("btn_add_url"), command=lambda: self.add_url_row("")).pack(pady=10)
 
+        # FIX: Replaced ttk.Separator with CTkFrame to fix NameError
         ctk.CTkFrame(scroll, height=2, fg_color="gray30").pack(fill="x", pady=20)
 
         def add_sec(txt): ctk.CTkLabel(scroll, text=txt, font=("Arial", 16, "bold"), anchor="w").pack(fill="x", pady=(10, 5))
@@ -394,7 +398,6 @@ class ModernApp(ctk.CTk):
         add_field("vorname", self.t("lbl_fname")); add_field("nachname", self.t("lbl_lname"))
         add_field("email", self.t("lbl_mail")); add_field("strasse", self.t("lbl_street"))
         add_field("ort", self.t("lbl_city"))
-        
         f = ctk.CTkFrame(scroll, fg_color="transparent"); f.pack(fill="x", pady=2)
         ctk.CTkLabel(f, text=self.t("lbl_sex"), width=120, anchor="w").pack(side="left", padx=5)
         self.c_sex = ctk.CTkComboBox(f, values=self.t("sex_values"))
@@ -482,7 +485,7 @@ class ModernApp(ctk.CTk):
             self.lbl_save_status.configure(text=self.t("msg_saved"), text_color="green")
             self.after(2000, lambda: self.lbl_save_status.configure(text=""))
         except Exception as e:
-            self.lbl_save_status.configure(text=f"Error: {e}", text_color="red")
+             self.lbl_save_status.configure(text=f"Error: {e}", text_color="red")
 
     def scan_courses(self):
         self.save_data()
