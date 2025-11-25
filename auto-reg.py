@@ -8,7 +8,7 @@ import shutil
 import winreg
 
 # --- PILLOW ---
-from PIL import Image
+from PIL import Image, ImageTk, ImageSequence
 
 # --- UNDETECTED CHROMEDRIVER ---
 import undetected_chromedriver as uc
@@ -34,8 +34,7 @@ STOP_FLAG = False
 # ==========================================
 LANG = {
     "de": {
-        "title": "FAU HSP BOT v39.0 (Final & Multi-Lang)",
-        "header_lang": "Sprache / Language:",
+        "title": "FAU HSP BOT v40.0 (Final)",
         "tab_run": "🚀 Dashboard",
         "tab_data": "👤 Meine Daten",
         "tab_urls": "🔗 Kurs URLs",
@@ -50,8 +49,8 @@ LANG = {
         "status_stopped": "Abgebrochen.",
         "msg_missing": "Bitte alle Felder im 'Meine Daten' Tab ausfüllen!",
         "msg_select": "Bitte mindestens einen Kurs im Dashboard auswählen!",
-        "msg_success_title": "ERFOLG!",
-        "msg_success_body": "Kurs {} gebucht!",
+        "msg_success_title": "BUCHUNG ERFOLGREICH!",
+        "msg_success_body": "Kurs {} wurde gebucht!",
         "sec_pers": "Persönliche Daten",
         "sec_bank": "Bankverbindung",
         "sec_stat": "Status & Uni",
@@ -63,8 +62,7 @@ LANG = {
         "status_values": ["S-UNIE : StudentIn der UNI Erlangen", "S-TH : StudentIn der TH-Nürnberg", "S-SPORT : SportstudentIn", "B-UNIE : Beschäftigte/r der UNI Erlangen", "Extern : Fördervereinsmitglied"]
     },
     "en": {
-        "title": "FAU HSP BOT v39.0 (Final & Multi-Lang)",
-        "header_lang": "Language / Sprache:",
+        "title": "FAU HSP BOT v40.0 (Final)",
         "tab_run": "🚀 Dashboard",
         "tab_data": "👤 My Profile",
         "tab_urls": "🔗 Course URLs",
@@ -118,7 +116,7 @@ def get_chrome_major_version():
     except: return None
 
 # ==========================================
-# BOT LOGIC (Fix: Tab Focus + URL Mapping)
+# BOT LOGIC
 # ==========================================
 def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_callback):
     global STOP_FLAG
@@ -130,6 +128,7 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
         options = uc.ChromeOptions()
         options.add_argument("--start-maximized")
         options.add_argument("--disable-popup-blocking")
+        # Removed detach to prevent crash on v142
         
         detected_ver = get_chrome_major_version()
         if detected_ver:
@@ -153,7 +152,6 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
                 btn = btns[0]
                 if "ausgebucht" in btn.get_attribute("value").lower(): driver.refresh(); continue
                 
-                # Click & Switch
                 driver.execute_script("arguments[0].click();", btn)
                 wait.until(EC.number_of_windows_to_be(2))
                 
@@ -162,7 +160,7 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
                         driver.switch_to.window(w)
                         break
                 
-                # FORCE WAKE UP TAB
+                # WAKE UP TAB
                 driver.switch_to.window(driver.current_window_handle)
                 driver.execute_script("window.focus();")
                 try: driver.find_element(By.TAG_NAME, "body").click()
@@ -219,7 +217,7 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
         try: driver.find_element(By.NAME, "tnbed").click()
         except: pass
 
-        # Wait Timer
+        # Wait Timer (Natural)
         log_callback(f"[{target_kurs_nr}] Waiting Timer...")
         try:
             submit_btn = WebDriverWait(driver, 20).until(EC.visibility_of_element_located((By.ID, "bs_submit")))
@@ -238,6 +236,8 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
                     log_callback(f"[{target_kurs_nr}] SUCCESS (Page 3)!")
                     time.sleep(1) 
                     final_btn[0].click()
+                    
+                    # Wait for button to vanish
                     time.sleep(2)
                     if not final_btn[0].is_displayed():
                         if success_callback: success_callback(target_kurs_nr)
@@ -269,7 +269,7 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
         if driver and STOP_FLAG: driver.quit()
 
 # ==========================================
-# MODERN GUI CLASS
+# MODERN GUI CLASS (Fixed Proportions)
 # ==========================================
 class ModernApp(ctk.CTk):
     def __init__(self):
@@ -279,12 +279,29 @@ class ModernApp(ctk.CTk):
         self.current_lang = "de"
         self.saved = {}
         self.url_entries = [] 
-        self.course_checkboxes = [] # Holds tuples (nr, url, var)
+        self.course_map = {}
+        
+        # GIF Loading
+        self.frames_loading = self.load_gif(GIF_LOADING)
+        self.frames_success = self.load_gif(GIF_SUCCESS)
+        if not self.frames_success: self.frames_success = self.frames_loading
+        
+        self.animating = False 
+        self.gif_idx = 0
 
+        # --- UI SETUP ---
         self.title(LANG[self.current_lang]["title"])
-        self.geometry("600x800")
+        self.geometry("550x750") # Slightly narrower/shorter for better look
+        
+        # PREVENT AUTO-SCALING BLOWOUT
+        # If your screen is 125% scale, this keeps the app normal sized
+        ctk.set_widget_scaling(1.0) 
+        ctk.set_window_scaling(1.0)
+
+        # GRID CONFIGURATION (The Fix)
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=0) # Header: Fixed size
+        self.grid_rowconfigure(1, weight=1) # Tabs: Takes all remaining space
 
         if os.path.exists(CONFIG_FILE):
             try:
@@ -295,8 +312,20 @@ class ModernApp(ctk.CTk):
                     raw = self.saved["last_urls"]
                     self.saved["url_list"] = [u.strip() for u in raw.split('\n') if u.strip()]
             except: pass
-        
+
         self.setup_ui()
+
+    def load_gif(self, path):
+        if not os.path.exists(path): return []
+        try:
+            im = Image.open(path)
+            frames = []
+            for frame in ImageSequence.Iterator(im):
+                # Resize GIF to fit nicely in the popup
+                frame = frame.resize((150, 150)) 
+                frames.append(ctk.CTkImage(light_image=frame, dark_image=frame, size=(150, 150)))
+            return frames
+        except: return []
 
     def t(self, key): return LANG[self.current_lang].get(key, key)
 
@@ -307,22 +336,21 @@ class ModernApp(ctk.CTk):
             self.setup_ui()
 
     def setup_ui(self):
-        # Clear existing
         for widget in self.winfo_children(): widget.destroy()
 
-        # --- HEADER (Lang Switch) ---
-        header = ctk.CTkFrame(self, height=40)
-        header.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
+        # --- HEADER ---
+        header = ctk.CTkFrame(self, height=40, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", padx=15, pady=(10, 5))
         
-        ctk.CTkLabel(header, text=self.t("title"), font=("Arial", 16, "bold")).pack(side="left", padx=10)
+        ctk.CTkLabel(header, text=self.t("title"), font=("Arial", 18, "bold")).pack(side="left")
         
         combo_lang = ctk.CTkComboBox(header, values=["Deutsch", "English"], command=self.change_language, width=100)
-        combo_lang.pack(side="right", padx=5, pady=5)
+        combo_lang.pack(side="right")
         combo_lang.set("Deutsch" if self.current_lang == "de" else "English")
 
         # --- TABS ---
         self.tabview = ctk.CTkTabview(self)
-        self.tabview.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+        self.tabview.grid(row=1, column=0, sticky="nsew", padx=15, pady=5)
         
         self.tab_run = self.tabview.add(LANG[self.current_lang]["tab_run"])
         self.tab_data = self.tabview.add(LANG[self.current_lang]["tab_data"])
@@ -332,12 +360,10 @@ class ModernApp(ctk.CTk):
         self.setup_tab_data()
         self.setup_tab_run()
 
-    # --- TAB 3: URL MANAGER ---
     def setup_tab_urls(self):
         self.scroll_urls = ctk.CTkScrollableFrame(self.tab_urls, label_text="Kurs URLs")
         self.scroll_urls.pack(fill="both", expand=True, padx=10, pady=10)
         
-        self.url_entries = [] # Reset list
         saved_urls = self.saved.get("url_list", [])
         if not saved_urls: self.add_url_row("") 
         else:
@@ -361,18 +387,17 @@ class ModernApp(ctk.CTk):
         if entry in self.url_entries: self.url_entries.remove(entry)
         frame.destroy()
 
-    # --- TAB 2: DATA ---
     def setup_tab_data(self):
         scroll = ctk.CTkScrollableFrame(self.tab_data)
         scroll.pack(fill="both", expand=True)
 
-        def add_sec(txt): ctk.CTkLabel(scroll, text=txt, font=("Arial", 16, "bold"), anchor="w").pack(fill="x", pady=(20, 5))
+        def add_sec(txt): ctk.CTkLabel(scroll, text=txt, font=("Arial", 16, "bold"), anchor="w").pack(fill="x", pady=(15, 5))
 
         def add_field(key, label):
             f = ctk.CTkFrame(scroll, fg_color="transparent"); f.pack(fill="x", pady=2)
-            ctk.CTkLabel(f, text=label, width=100, anchor="w").pack(side="left")
+            ctk.CTkLabel(f, text=label, width=120, anchor="w").pack(side="left", padx=5)
             e = ctk.CTkEntry(f)
-            e.pack(side="right", expand=True, fill="x")
+            e.pack(side="right", expand=True, fill="x", padx=5)
             if key in self.saved: e.insert(0, self.saved[key])
             setattr(self, f"e_{key}", e)
 
@@ -384,9 +409,9 @@ class ModernApp(ctk.CTk):
         add_field("ort", self.t("lbl_city"))
         
         f = ctk.CTkFrame(scroll, fg_color="transparent"); f.pack(fill="x", pady=2)
-        ctk.CTkLabel(f, text=self.t("lbl_sex"), width=100, anchor="w").pack(side="left")
+        ctk.CTkLabel(f, text=self.t("lbl_sex"), width=120, anchor="w").pack(side="left", padx=5)
         self.c_sex = ctk.CTkComboBox(f, values=self.t("sex_values"))
-        self.c_sex.pack(side="right", expand=True, fill="x")
+        self.c_sex.pack(side="right", expand=True, fill="x", padx=5)
         self.set_combo(self.c_sex, "geschlecht")
 
         add_sec(self.t("sec_bank"))
@@ -394,22 +419,22 @@ class ModernApp(ctk.CTk):
         add_field("bic", self.t("lbl_bic"))
         
         f = ctk.CTkFrame(scroll, fg_color="transparent"); f.pack(fill="x", pady=2)
-        ctk.CTkLabel(f, text=self.t("lbl_holder"), width=100, anchor="w").pack(side="left")
+        ctk.CTkLabel(f, text=self.t("lbl_holder"), width=120, anchor="w").pack(side="left", padx=5)
         self.e_inhaber = ctk.CTkEntry(f)
-        self.e_inhaber.pack(side="right", expand=True, fill="x")
+        self.e_inhaber.pack(side="right", expand=True, fill="x", padx=5)
         if "inhaber" in self.saved: self.e_inhaber.insert(0, self.saved["inhaber"])
 
         add_sec(self.t("sec_stat"))
         f = ctk.CTkFrame(scroll, fg_color="transparent"); f.pack(fill="x", pady=2)
-        ctk.CTkLabel(f, text=self.t("lbl_status"), width=100, anchor="w").pack(side="left")
+        ctk.CTkLabel(f, text=self.t("lbl_status"), width=120, anchor="w").pack(side="left", padx=5)
         self.c_status = ctk.CTkComboBox(f, values=self.t("status_values"))
-        self.c_status.pack(side="right", expand=True, fill="x")
+        self.c_status.pack(side="right", expand=True, fill="x", padx=5)
         self.set_combo(self.c_status, "status")
         
         f = ctk.CTkFrame(scroll, fg_color="transparent"); f.pack(fill="x", pady=2)
-        ctk.CTkLabel(f, text=self.t("lbl_statnr"), width=100, anchor="w").pack(side="left")
+        ctk.CTkLabel(f, text=self.t("lbl_statnr"), width=120, anchor="w").pack(side="left", padx=5)
         self.e_statnr = ctk.CTkEntry(f)
-        self.e_statnr.pack(side="right", expand=True, fill="x")
+        self.e_statnr.pack(side="right", expand=True, fill="x", padx=5)
         if "status_nr" in self.saved: self.e_statnr.insert(0, self.saved["status_nr"])
 
         ctk.CTkButton(scroll, text="SAVE DATA", command=self.save_data, fg_color="green").pack(pady=20)
@@ -421,7 +446,6 @@ class ModernApp(ctk.CTk):
             for v in vals:
                 if v.startswith(prefix): combo.set(v); return
 
-    # --- TAB 1: RUN ---
     def setup_tab_run(self):
         f_scan = ctk.CTkFrame(self.tab_run)
         f_scan.pack(fill="x", padx=10, pady=10)
@@ -431,7 +455,7 @@ class ModernApp(ctk.CTk):
 
         self.scroll_courses = ctk.CTkScrollableFrame(self.tab_run, label_text="Available Courses")
         self.scroll_courses.pack(fill="both", expand=True, padx=10, pady=5)
-        self.course_checkboxes = [] # Reset UI list
+        self.course_checkboxes = []
 
         self.lbl_status = ctk.CTkLabel(self.tab_run, text=self.t("status_ready"), font=("Arial", 14))
         self.lbl_status.pack(pady=5)
@@ -447,7 +471,6 @@ class ModernApp(ctk.CTk):
                                     font=("Arial", 16, "bold"), height=50, fg_color="darkred", hover_color="red", state="disabled")
         self.btn_stop.pack(side="right", fill="x", expand=True, padx=5)
 
-    # --- LOGIC ---
     def save_data(self):
         url_list = [e.get() for e in self.url_entries if e.get().strip()]
         data = {
@@ -468,20 +491,20 @@ class ModernApp(ctk.CTk):
         urls = self.saved.get("url_list", [])
         if not urls: return messagebox.showerror("Error", "No URLs in 'URLs' tab!")
         
-        # Clean old list UI
         for w in self.scroll_courses.winfo_children(): w.destroy()
-        self.course_checkboxes = [] # Clear list mapping
+        self.course_checkboxes = []
         self.lbl_status.configure(text="Scanning...")
         
         threading.Thread(target=self._scan_thread, args=(urls,), daemon=True).start()
 
     def _scan_thread(self, urls):
         try:
+            # Use Standard Driver for Scanning (Cleaner)
             import selenium.webdriver as std_webdriver
             from webdriver_manager.chrome import ChromeDriverManager
             from selenium.webdriver.chrome.service import Service as StdService
             service = StdService(ChromeDriverManager().install())
-            service.creation_flags = 0x08000000
+            # No creation flags here to keep it simple
             opts = std_webdriver.ChromeOptions(); opts.add_argument("--headless")
             driver = std_webdriver.Chrome(service=service, options=opts)
             
@@ -496,7 +519,6 @@ class ModernApp(ctk.CTk):
                             tag = row.find_element(By.CLASS_NAME, "bs_stag").text
                             zeit = row.find_element(By.CLASS_NAME, "bs_szeit").text
                             det = row.find_element(By.CLASS_NAME, "bs_sdet").text
-                            # STORE (NR, TEXT, SPECIFIC_URL)
                             found.append((nr, f"{nr} | {tag} {zeit} | {det}", url))
                         except: continue
                 except: pass
@@ -510,22 +532,22 @@ class ModernApp(ctk.CTk):
             ctk.CTkLabel(self.scroll_courses, text="No courses found.").pack()
             return
 
-        # Course tuple is (nr, text, url)
         for nr, text, url in courses:
+            # self.course_map[nr] = url # REMOVED MAP, USING TUPLE NOW
             var = ctk.StringVar(value="off")
             cb = ctk.CTkCheckBox(self.scroll_courses, text=text, variable=var, onvalue="on", offvalue="off")
             cb.pack(fill="x", pady=2, anchor="w")
-            # FIX: Store URL directly in the list item
+            # STORE THE URL WITH THE CHECKBOX
             self.course_checkboxes.append((nr, var, url))
 
     def start_bots(self):
         self.save_data()
         global STOP_FLAG
         
-        # FIX: Filter based on var and grab associated URL
-        selected_items = [(nr, url) for nr, var, url in self.course_checkboxes if var.get() == "on"]
+        # FIX: FILTER FROM TUPLE LIST
+        selected = [(nr, url) for nr, var, url in self.course_checkboxes if var.get() == "on"]
         
-        if not selected_items: return messagebox.showerror("Error", "Select a course!")
+        if not selected: return messagebox.showerror("Error", "Select a course!")
 
         bot_data = self.saved.copy()
         bot_data["geschlecht"] = bot_data["geschlecht"].split(" ")[0]
@@ -535,7 +557,7 @@ class ModernApp(ctk.CTk):
         STOP_FLAG = False
         self.running_threads = []
         
-        for i, (nr, url) in enumerate(selected_items):
+        for i, (nr, url) in enumerate(selected):
             if i > 0: time.sleep(2)
             t = threading.Thread(target=run_bot_thread, args=(url, nr, bot_data, self.on_success, self.update_log))
             self.running_threads.append(t)
@@ -553,10 +575,34 @@ class ModernApp(ctk.CTk):
         self.lbl_status.configure(text=self.t("status_stopped"), text_color="red")
 
     def update_log(self, msg):
+        # Optional: Print to console or add a log widget
         print(msg)
 
     def on_success(self, nr):
-        self.after(0, lambda: messagebox.showinfo("SUCCESS", f"Course {nr} Booked!"))
+        self.after(0, lambda: self.show_success_popup(nr))
+
+    def show_success_popup(self, nr):
+        top = ctk.CTkToplevel(self)
+        top.title("SUCCESS!")
+        top.geometry("400x400")
+        top.attributes('-topmost', True)
+        
+        ctk.CTkLabel(top, text=self.t("msg_success_title"), font=("Arial", 20, "bold"), text_color="green").pack(pady=20)
+        ctk.CTkLabel(top, text=self.t("msg_success_body").format(nr), font=("Arial", 14)).pack()
+
+        # GIF in Popup
+        if self.frames_success:
+            lbl_gif = ctk.CTkLabel(top, text="")
+            lbl_gif.pack(pady=20)
+            def anim_p(idx=0):
+                try:
+                    if not top.winfo_exists(): return
+                    lbl_gif.configure(image=self.frames_success[idx])
+                    top.after(50, anim_p, (idx+1)%len(self.frames_success))
+                except: pass
+            anim_p()
+            
+        ctk.CTkButton(top, text="OK", command=top.destroy).pack(pady=20)
 
 if __name__ == "__main__":
     app = ModernApp()
