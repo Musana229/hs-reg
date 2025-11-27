@@ -7,6 +7,10 @@ import threading
 import shutil
 import winreg
 import sys
+import logging
+import traceback
+from datetime import datetime
+from multiprocessing import freeze_support
 
 # --- PILLOW ---
 from PIL import Image, ImageSequence
@@ -24,7 +28,12 @@ from selenium.common.exceptions import TimeoutException
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
-CONFIG_FILE = "user_data.json"
+APP_NAME = "FAU_Bot"
+APPDATA_DIR = os.path.join(os.environ.get('APPDATA'), APP_NAME)
+if not os.path.exists(APPDATA_DIR):
+    os.makedirs(APPDATA_DIR)
+
+CONFIG_FILE = os.path.join(APPDATA_DIR, "user_data.json")
 
 def resource_path(relative_path):
     try:
@@ -43,8 +52,8 @@ STOP_FLAG = False
 # ==========================================
 LANG = {
     "de": {
-        "title": "FAU Hochschulsport BOT v0.02",
-        "tab_run": "Dashboard",
+        "title": "FAU Hochschulsport BOT v0.04",
+        "tab_run": "Kurse",
         "tab_settings": "⚙️ Einstellungen",
         "lbl_scan_area": "Kurs Auswahl",
         "btn_scan": "Kurse Scannen",
@@ -60,24 +69,25 @@ LANG = {
         "msg_success_title": "ERFOLG!",
         "msg_success_body": "Kurs {} gebucht!",
         "msg_saved": "Daten erfolgreich gespeichert! ✓",
+        "btn_logs": "📜 Logs anzeigen",
         
-        "sec_urls": "1. Kurs URLs",
+        "sec_urls": "Kurs URLs",
         "btn_add_url": "+ URL hinzufügen",
-        "sec_pers": "2. Persönliche Daten",
-        "sec_bank": "3. Bankverbindung",
-        "sec_stat": "4. Status & Uni",
+        "sec_pers": "1. Persönliche Daten",
+        "sec_bank": "2. Bankverbindung",
+        "sec_stat": "3. Status & Uni",
         
         "lbl_fname": "Vorname", "lbl_lname": "Nachname", "lbl_mail": "E-Mail",
         "lbl_street": "Straße & Nr", "lbl_city": "PLZ & Ort", "lbl_sex": "Geschlecht",
         "lbl_iban": "IBAN", "lbl_bic": "BIC", "lbl_holder": "Kontoinhaber",
-        "lbl_status": "Status", "lbl_statnr": "Matrikelnummer",
+        "lbl_status": "Status", "lbl_statnr": "Matrikelnummer", # Changed
         
         "sex_values": ["M - Männlich", "W - Weiblich", "D - Divers", "X - Keine Angabe"],
         "status_values": ["S-UNIE : StudentIn der UNI Erlangen", "S-TH : StudentIn der TH-Nürnberg", "S-SPORT : SportstudentIn", "B-UNIE : Beschäftigte/r der UNI Erlangen", "Extern : Fördervereinsmitglied"]
     },
     "en": {
-        "title": "FAU Hochschulsport BOT v0.02",
-        "tab_run": "Dashboard",
+        "title": "FAU Hochschulsport BOT v0.04",
+        "tab_run": "Courses",
         "tab_settings": "⚙️ Settings",
         "lbl_scan_area": "Course Selection",
         "btn_scan": "Scan Courses",
@@ -93,17 +103,18 @@ LANG = {
         "msg_success_title": "SUCCESS!",
         "msg_success_body": "Course {} booked!",
         "msg_saved": "Data saved successfully! ✓",
+        "btn_logs": "📜 Show Logs",
         
-        "sec_urls": "1. Course URLs",
+        "sec_urls": "Course URLs",
         "btn_add_url": "+ Add URL",
-        "sec_pers": "2. Personal Data",
-        "sec_bank": "3. Bank Details",
-        "sec_stat": "4. Status & Uni",
+        "sec_pers": "1. Personal Data",
+        "sec_bank": "2. Bank Details",
+        "sec_stat": "3. Status & Uni",
         
         "lbl_fname": "First Name", "lbl_lname": "Last Name", "lbl_mail": "E-Mail",
         "lbl_street": "Street & No", "lbl_city": "Zip & City", "lbl_sex": "Gender",
         "lbl_iban": "IBAN", "lbl_bic": "BIC", "lbl_holder": "Account Holder",
-        "lbl_status": "Status", "lbl_statnr": "Matriculation No",
+        "lbl_status": "Status", "lbl_statnr": "Matriculation No", # Changed
         
         "sex_values": ["M - Male", "W - Female", "D - Diverse", "X - No Answer"],
         "status_values": ["S-UNIE : Student at FAU Erlangen", "S-TH : Student at TH Nuremberg", "S-SPORT : Sports Student", "B-UNIE : Employee at FAU", "Extern : Association Member"]
@@ -160,7 +171,6 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
         options = uc.ChromeOptions()
         options.add_argument("--start-maximized")
         options.add_argument("--disable-popup-blocking")
-        # FIX: Removed 'detach' to prevent crash on Chrome 142
         
         detected_ver = get_chrome_major_version()
         if detected_ver:
@@ -288,7 +298,8 @@ def run_bot_thread(target_url, target_kurs_nr, user_data, success_callback, log_
         while not STOP_FLAG: time.sleep(1)
 
     except Exception as e:
-        print(f"CRASH: {e}")
+        err_msg = "".join(traceback.format_exception(None, e, e.__traceback__))
+        log_callback(f"CRASH [{target_kurs_nr}]:\n{err_msg}")
     finally:
         if driver and STOP_FLAG: driver.quit()
 
@@ -303,7 +314,8 @@ class ModernApp(ctk.CTk):
         self.current_lang = "de"
         self.saved = {}
         self.url_entries = [] 
-        self.course_map = {} # Stores tuple (nr, url, var)
+        self.course_map = {} 
+        self.log_buffer = [] 
         
         self.frames_loading = self.load_gif(GIF_LOADING)
         self.frames_success = self.load_gif(GIF_SUCCESS)
@@ -327,6 +339,21 @@ class ModernApp(ctk.CTk):
             except: pass
 
         self.setup_ui()
+
+    # --- Validation Logic for Matrikelnummer ---
+    def _validate_statnr(self, *args):
+        val = self.var_statnr.get()
+        # Filter digits only and limit to 7 chars
+        clean_val = "".join(filter(str.isdigit, val))[:7]
+        if val != clean_val:
+            self.var_statnr.set(clean_val)
+
+    def log_event(self, msg):
+        ts = datetime.now().strftime("%H:%M:%S")
+        entry = f"[{ts}] {msg}"
+        self.log_buffer.append(entry)
+        print(entry) 
+        if len(self.log_buffer) > 200: self.log_buffer.pop(0)
 
     def load_gif(self, path):
         if not os.path.exists(path): return []
@@ -370,19 +397,7 @@ class ModernApp(ctk.CTk):
         scroll = ctk.CTkScrollableFrame(self.tab_settings)
         scroll.pack(fill="both", expand=True)
 
-        ctk.CTkLabel(scroll, text=self.t("sec_urls"), font=("Arial", 16, "bold"), anchor="w").pack(fill="x", pady=(10, 5))
-        self.frame_urls_container = ctk.CTkFrame(scroll, fg_color="transparent")
-        self.frame_urls_container.pack(fill="x")
-
-        self.url_entries = [] 
-        saved_urls = self.saved.get("url_list", [])
-        if not saved_urls: self.add_url_row("") 
-        else:
-            for url in saved_urls: self.add_url_row(url)
-        ctk.CTkButton(scroll, text=self.t("btn_add_url"), command=lambda: self.add_url_row("")).pack(pady=10)
-
-        # FIX: Replaced ttk.Separator with CTkFrame to fix NameError
-        ctk.CTkFrame(scroll, height=2, fg_color="gray30").pack(fill="x", pady=20)
+        # URLs Removed from here (Moved to Tab 1)
 
         def add_sec(txt): ctk.CTkLabel(scroll, text=txt, font=("Arial", 16, "bold"), anchor="w").pack(fill="x", pady=(10, 5))
         def add_field(key, label):
@@ -419,11 +434,73 @@ class ModernApp(ctk.CTk):
         self.c_status = ctk.CTkComboBox(f, values=self.t("status_values"))
         self.c_status.pack(side="right", expand=True, fill="x", padx=5)
         self.set_combo(self.c_status, "status")
-        add_field("statnr", self.t("lbl_statnr"))
+        
+        # --- Custom implementation for Matrikelnummer (Enforce 7 Digits) ---
+        f_stat = ctk.CTkFrame(scroll, fg_color="transparent")
+        f_stat.pack(fill="x", pady=2)
+        ctk.CTkLabel(f_stat, text=self.t("lbl_statnr"), width=120, anchor="w").pack(side="left", padx=5)
+        
+        self.var_statnr = ctk.StringVar()
+        self.var_statnr.trace_add("write", self._validate_statnr)
+        
+        self.e_statnr = ctk.CTkEntry(f_stat, textvariable=self.var_statnr)
+        self.e_statnr.pack(side="right", expand=True, fill="x", padx=5)
+        
+        if "status_nr" in self.saved: 
+            self.var_statnr.set(self.saved["status_nr"])
 
-        ctk.CTkButton(scroll, text="SAVE DATA", command=self.save_data, fg_color="green").pack(pady=(20, 5))
+        # Buttons
+        btn_box = ctk.CTkFrame(scroll, fg_color="transparent")
+        btn_box.pack(pady=20, fill="x")
+        ctk.CTkButton(btn_box, text=self.t("btn_logs"), command=self.show_log_window, fg_color="gray40").pack(side="left", padx=5, expand=True)
+        ctk.CTkButton(btn_box, text="SAVE DATA", command=self.save_data, fg_color="green").pack(side="right", padx=5, expand=True)
+
         self.lbl_save_status = ctk.CTkLabel(scroll, text="", font=("Arial", 12, "bold"))
         self.lbl_save_status.pack(pady=(0, 20))
+
+    def setup_tab_run(self):
+        # --- 1. URL Section (Moved from Settings) ---
+        self.url_entries = [] # Reset list logic
+        f_url_header = ctk.CTkFrame(self.tab_run, fg_color="transparent")
+        f_url_header.pack(fill="x", padx=10, pady=(10, 0))
+        ctk.CTkLabel(f_url_header, text=self.t("sec_urls"), font=("Arial", 16, "bold")).pack(side="left")
+        
+        self.scroll_urls = ctk.CTkScrollableFrame(self.tab_run, height=100)
+        self.scroll_urls.pack(fill="x", padx=10, pady=5)
+        
+        self.frame_urls_container = ctk.CTkFrame(self.scroll_urls, fg_color="transparent")
+        self.frame_urls_container.pack(fill="x")
+        
+        saved_urls = self.saved.get("url_list", [])
+        if not saved_urls: self.add_url_row("") 
+        else:
+            for url in saved_urls: self.add_url_row(url)
+            
+        ctk.CTkButton(self.scroll_urls, text=self.t("btn_add_url"), command=lambda: self.add_url_row(""), height=25).pack(pady=5)
+
+        # --- 2. Action Section ---
+        f_scan = ctk.CTkFrame(self.tab_run)
+        f_scan.pack(fill="x", padx=10, pady=10)
+        ctk.CTkLabel(f_scan, text="Update:").pack(side="left", padx=10)
+        ctk.CTkButton(f_scan, text=self.t("btn_scan"), command=self.scan_courses).pack(side="right", padx=10)
+
+        # --- 3. Courses List ---
+        self.scroll_courses = ctk.CTkScrollableFrame(self.tab_run, label_text=self.t("lbl_choose"))
+        self.scroll_courses.pack(fill="both", expand=True, padx=10, pady=5)
+        self.course_checkboxes = []
+
+        # --- 4. Footer & Controls ---
+        self.lbl_status = ctk.CTkLabel(self.tab_run, text=self.t("status_ready"), font=("Arial", 14))
+        self.lbl_status.pack(pady=5)
+        self.lbl_gif = ctk.CTkLabel(self.tab_run, text="")
+        self.lbl_gif.pack(pady=5)
+
+        f_btn = ctk.CTkFrame(self.tab_run, fg_color="transparent")
+        f_btn.pack(fill="x", padx=10, pady=20)
+        self.btn_start = ctk.CTkButton(f_btn, text=self.t("btn_start"), command=self.start_bots, font=("Arial", 16, "bold"), height=50, fg_color="green", hover_color="darkgreen")
+        self.btn_start.pack(side="left", fill="x", expand=True, padx=5)
+        self.btn_stop = ctk.CTkButton(f_btn, text=self.t("btn_stop"), command=self.stop_bots, font=("Arial", 16, "bold"), height=50, fg_color="darkred", hover_color="red", state="disabled")
+        self.btn_stop.pack(side="right", fill="x", expand=True, padx=5)
 
     def add_url_row(self, text):
         row = ctk.CTkFrame(self.frame_urls_container)
@@ -446,37 +523,23 @@ class ModernApp(ctk.CTk):
             for v in vals:
                 if v.startswith(prefix): combo.set(v); return
 
-    def setup_tab_run(self):
-        f_scan = ctk.CTkFrame(self.tab_run)
-        f_scan.pack(fill="x", padx=10, pady=10)
-        ctk.CTkLabel(f_scan, text="1. Update:").pack(side="left", padx=10)
-        ctk.CTkButton(f_scan, text=self.t("btn_scan"), command=self.scan_courses).pack(side="right", padx=10)
-
-        self.scroll_courses = ctk.CTkScrollableFrame(self.tab_run, label_text="Available Courses")
-        self.scroll_courses.pack(fill="both", expand=True, padx=10, pady=5)
-        self.course_checkboxes = []
-
-        self.lbl_status = ctk.CTkLabel(self.tab_run, text=self.t("status_ready"), font=("Arial", 14))
-        self.lbl_status.pack(pady=5)
-        self.lbl_gif = ctk.CTkLabel(self.tab_run, text="")
-        self.lbl_gif.pack(pady=5)
-
-        f_btn = ctk.CTkFrame(self.tab_run, fg_color="transparent")
-        f_btn.pack(fill="x", padx=10, pady=20)
-        self.btn_start = ctk.CTkButton(f_btn, text=self.t("btn_start"), command=self.start_bots, font=("Arial", 16, "bold"), height=50, fg_color="green", hover_color="darkgreen")
-        self.btn_start.pack(side="left", fill="x", expand=True, padx=5)
-        self.btn_stop = ctk.CTkButton(f_btn, text=self.t("btn_stop"), command=self.stop_bots, font=("Arial", 16, "bold"), height=50, fg_color="darkred", hover_color="red", state="disabled")
-        self.btn_stop.pack(side="right", fill="x", expand=True, padx=5)
-
     def save_data(self):
-        url_list = [e.get() for e in self.url_entries if e.get().strip()]
+        # Gather URLs (now in Tab 1, but we can access them via self.url_entries)
+        url_list = []
+        # Filter out destroyed entries just in case
+        for e in self.url_entries:
+            try:
+                if e.get().strip(): url_list.append(e.get())
+            except: pass
+
         data = {
             "vorname": self.e_vorname.get(), "nachname": self.e_nachname.get(),
             "email": self.e_email.get(), "strasse": self.e_strasse.get(),
             "ort": self.e_ort.get(), "iban": self.e_iban.get(),
             "bic": self.e_bic.get(), "inhaber": self.e_inhaber.get(),
             "geschlecht": self.c_sex.get(), "status": self.c_status.get(),
-            "status_nr": self.e_statnr.get(), "url_list": url_list,
+            "status_nr": self.var_statnr.get(), # Use var instead of entry
+            "url_list": url_list,
             "language": self.current_lang
         }
         try:
@@ -490,7 +553,7 @@ class ModernApp(ctk.CTk):
     def scan_courses(self):
         self.save_data()
         urls = self.saved.get("url_list", [])
-        if not urls: return messagebox.showerror("Error", "No URLs in 'URLs' tab!")
+        if not urls: return messagebox.showerror("Error", "No URLs in 'Kurse' tab!")
         for w in self.scroll_courses.winfo_children(): w.destroy()
         self.course_checkboxes = []
         self.lbl_status.configure(text="Scanning...")
@@ -543,10 +606,14 @@ class ModernApp(ctk.CTk):
         bot_data["wait_timer"] = True
         STOP_FLAG = False
         self.running_threads = []
+        
+        self.log_buffer = []
+        self.log_event("Starting bots...")
+        
         for i, (nr, url) in enumerate(selected):
             if url:
                 if i > 0: time.sleep(2)
-                t = threading.Thread(target=run_bot_thread, args=(url, nr, bot_data, self.on_success, self.update_log))
+                t = threading.Thread(target=run_bot_thread, args=(url, nr, bot_data, self.on_success, self.log_event))
                 self.running_threads.append(t)
                 t.start()
         self.btn_start.configure(state="disabled")
@@ -557,12 +624,12 @@ class ModernApp(ctk.CTk):
     def stop_bots(self):
         global STOP_FLAG
         STOP_FLAG = True
+        self.log_event("Stopping bots...")
         self.btn_start.configure(state="normal")
         self.btn_stop.configure(state="disabled")
         self.lbl_status.configure(text=self.t("status_stopped"), text_color="red")
         self.stop_anim()
 
-    def update_log(self, msg): print(msg)
     def start_anim(self):
         if not self.frames_loading: return
         self.animating = True
@@ -598,6 +665,17 @@ class ModernApp(ctk.CTk):
             anim_p()
         ctk.CTkButton(top, text="OK", command=top.destroy).pack(pady=20)
 
+    def show_log_window(self):
+        top = ctk.CTkToplevel(self)
+        top.title("Debug Logs")
+        top.geometry("500x400")
+        textbox = ctk.CTkTextbox(top, font=("Consolas", 12))
+        textbox.pack(fill="both", expand=True, padx=10, pady=10)
+        full_log = "\n".join(self.log_buffer)
+        textbox.insert("0.0", full_log)
+        textbox.configure(state="disabled")
+
 if __name__ == "__main__":
+    freeze_support()
     app = ModernApp()
     app.mainloop()
