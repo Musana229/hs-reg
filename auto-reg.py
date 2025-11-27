@@ -9,7 +9,7 @@ import winreg
 import sys
 
 # --- PILLOW ---
-from PIL import Image, ImageTk, ImageSequence
+from PIL import Image, ImageSequence
 
 # --- UNDETECTED CHROMEDRIVER ---
 import undetected_chromedriver as uc
@@ -43,7 +43,7 @@ STOP_FLAG = False
 # ==========================================
 LANG = {
     "de": {
-        "title": "FAU HSP BOT v41.1 (Fix)",
+        "title": "FAU Hochschulsport BOT v0.02",
         "tab_run": "Dashboard",
         "tab_settings": "⚙️ Einstellungen",
         "lbl_scan_area": "Kurs Auswahl",
@@ -76,7 +76,7 @@ LANG = {
         "status_values": ["S-UNIE : StudentIn der UNI Erlangen", "S-TH : StudentIn der TH-Nürnberg", "S-SPORT : SportstudentIn", "B-UNIE : Beschäftigte/r der UNI Erlangen", "Extern : Fördervereinsmitglied"]
     },
     "en": {
-        "title": "FAU HSP BOT v41.1 (Fix)",
+        "title": "FAU Hochschulsport BOT v0.02",
         "tab_run": "Dashboard",
         "tab_settings": "⚙️ Settings",
         "lbl_scan_area": "Course Selection",
@@ -485,7 +485,7 @@ class ModernApp(ctk.CTk):
             self.lbl_save_status.configure(text=self.t("msg_saved"), text_color="green")
             self.after(2000, lambda: self.lbl_save_status.configure(text=""))
         except Exception as e:
-             self.lbl_save_status.configure(text=f"Error: {e}", text_color="red")
+            self.lbl_save_status.configure(text=f"Error: {e}", text_color="red")
 
     def scan_courses(self):
         self.save_data()
