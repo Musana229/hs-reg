@@ -29,7 +29,7 @@ ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
 APP_NAME = "FAU_Bot"
-APP_TITLE = "FAU Hochschulsport BOT v0.09" # Unified Title
+APP_TITLE = "FAU Hochschulsport BOT v0.10" # Bumped to v0.10 due to new scanning logic
 
 APPDATA_DIR = os.path.join(os.environ.get('APPDATA'), APP_NAME)
 if not os.path.exists(APPDATA_DIR):
@@ -462,7 +462,7 @@ class ModernApp(ctk.CTk):
         ctk.CTkLabel(f_url_header, text=self.t("sec_urls"), font=("Arial", 16, "bold")).pack(side="left")
         ctk.CTkButton(f_url_header, text=self.t("btn_scan"), width=120, command=self.scan_courses).pack(side="right")
         
-        # Fixed Height Frame (Pre-dynamic logic)
+        # Fixed Height Frame
         self.scroll_urls = ctk.CTkScrollableFrame(self.tab_run, height=150) 
         self.scroll_urls.pack(fill="x", padx=10, pady=5)
         
@@ -550,6 +550,7 @@ class ModernApp(ctk.CTk):
         self.lbl_status.configure(text="Scanning...")
         threading.Thread(target=self._scan_thread, args=(urls,), daemon=True).start()
 
+    # v0.10: Updated to find course name
     def _scan_thread(self, urls):
         try:
             import selenium.webdriver as std_webdriver
@@ -563,6 +564,15 @@ class ModernApp(ctk.CTk):
             for url in urls:
                 try:
                     driver.get(url)
+                    
+                    # 1. Try to find the Course Name
+                    course_name = "Kurs"
+                    try:
+                        # Extract from div.bs_head
+                        course_name = driver.find_element(By.CSS_SELECTOR, "div.bs_head").text.strip()
+                    except: pass
+
+                    # 2. Parse Rows
                     rows = driver.find_elements(By.CSS_SELECTOR, "table.bs_kurse tbody tr")
                     for row in rows:
                         try:
@@ -570,7 +580,11 @@ class ModernApp(ctk.CTk):
                             tag = row.find_element(By.CLASS_NAME, "bs_stag").text
                             zeit = row.find_element(By.CLASS_NAME, "bs_szeit").text
                             det = row.find_element(By.CLASS_NAME, "bs_sdet").text
-                            found.append((nr, f"{nr} | {tag} {zeit} | {det}", url))
+                            
+                            # 3. Format Label with Course Name
+                            label_text = f"{course_name} | {nr} | {tag} {zeit} | {det}"
+                            
+                            found.append((nr, label_text, url))
                         except: continue
                 except: pass
             driver.quit()
