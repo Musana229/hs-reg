@@ -1,2 +1,4 @@
 user_data.json
-.venv
+.venv/
+build/
+dist/
