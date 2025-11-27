@@ -29,6 +29,8 @@ ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
 APP_NAME = "FAU_Bot"
+APP_TITLE = "FAU Hochschulsport BOT v0.09" # Unified Title
+
 APPDATA_DIR = os.path.join(os.environ.get('APPDATA'), APP_NAME)
 if not os.path.exists(APPDATA_DIR):
     os.makedirs(APPDATA_DIR)
@@ -52,11 +54,11 @@ STOP_FLAG = False
 # ==========================================
 LANG = {
     "de": {
-        "title": "FAU Hochschulsport BOT v0.04",
+        "title": APP_TITLE,
         "tab_run": "Kurse",
         "tab_settings": "⚙️ Einstellungen",
         "lbl_scan_area": "Kurs Auswahl",
-        "btn_scan": "Kurse Scannen",
+        "btn_scan": "Update / Scannen",
         "lbl_no_courses": "Keine Kurse gefunden. URLs prüfen.",
         "lbl_choose": "Verfügbare Kurse:",
         "btn_start": "BOTS STARTEN",
@@ -80,17 +82,17 @@ LANG = {
         "lbl_fname": "Vorname", "lbl_lname": "Nachname", "lbl_mail": "E-Mail",
         "lbl_street": "Straße & Nr", "lbl_city": "PLZ & Ort", "lbl_sex": "Geschlecht",
         "lbl_iban": "IBAN", "lbl_bic": "BIC", "lbl_holder": "Kontoinhaber",
-        "lbl_status": "Status", "lbl_statnr": "Matrikelnummer", # Changed
+        "lbl_status": "Status", "lbl_statnr": "Matrikelnummer",
         
         "sex_values": ["M - Männlich", "W - Weiblich", "D - Divers", "X - Keine Angabe"],
         "status_values": ["S-UNIE : StudentIn der UNI Erlangen", "S-TH : StudentIn der TH-Nürnberg", "S-SPORT : SportstudentIn", "B-UNIE : Beschäftigte/r der UNI Erlangen", "Extern : Fördervereinsmitglied"]
     },
     "en": {
-        "title": "FAU Hochschulsport BOT v0.04",
+        "title": APP_TITLE,
         "tab_run": "Courses",
         "tab_settings": "⚙️ Settings",
         "lbl_scan_area": "Course Selection",
-        "btn_scan": "Scan Courses",
+        "btn_scan": "Update / Scan",
         "lbl_no_courses": "No courses found. Check URLs.",
         "lbl_choose": "Available Courses:",
         "btn_start": "START BOTS",
@@ -114,7 +116,7 @@ LANG = {
         "lbl_fname": "First Name", "lbl_lname": "Last Name", "lbl_mail": "E-Mail",
         "lbl_street": "Street & No", "lbl_city": "Zip & City", "lbl_sex": "Gender",
         "lbl_iban": "IBAN", "lbl_bic": "BIC", "lbl_holder": "Account Holder",
-        "lbl_status": "Status", "lbl_statnr": "Matriculation No", # Changed
+        "lbl_status": "Status", "lbl_statnr": "Matriculation No",
         
         "sex_values": ["M - Male", "W - Female", "D - Diverse", "X - No Answer"],
         "status_values": ["S-UNIE : Student at FAU Erlangen", "S-TH : Student at TH Nuremberg", "S-SPORT : Sports Student", "B-UNIE : Employee at FAU", "Extern : Association Member"]
@@ -340,10 +342,8 @@ class ModernApp(ctk.CTk):
 
         self.setup_ui()
 
-    # --- Validation Logic for Matrikelnummer ---
     def _validate_statnr(self, *args):
         val = self.var_statnr.get()
-        # Filter digits only and limit to 7 chars
         clean_val = "".join(filter(str.isdigit, val))[:7]
         if val != clean_val:
             self.var_statnr.set(clean_val)
@@ -397,8 +397,6 @@ class ModernApp(ctk.CTk):
         scroll = ctk.CTkScrollableFrame(self.tab_settings)
         scroll.pack(fill="both", expand=True)
 
-        # URLs Removed from here (Moved to Tab 1)
-
         def add_sec(txt): ctk.CTkLabel(scroll, text=txt, font=("Arial", 16, "bold"), anchor="w").pack(fill="x", pady=(10, 5))
         def add_field(key, label):
             f = ctk.CTkFrame(scroll, fg_color="transparent"); f.pack(fill="x", pady=2)
@@ -435,7 +433,6 @@ class ModernApp(ctk.CTk):
         self.c_status.pack(side="right", expand=True, fill="x", padx=5)
         self.set_combo(self.c_status, "status")
         
-        # --- Custom implementation for Matrikelnummer (Enforce 7 Digits) ---
         f_stat = ctk.CTkFrame(scroll, fg_color="transparent")
         f_stat.pack(fill="x", pady=2)
         ctk.CTkLabel(f_stat, text=self.t("lbl_statnr"), width=120, anchor="w").pack(side="left", padx=5)
@@ -449,7 +446,6 @@ class ModernApp(ctk.CTk):
         if "status_nr" in self.saved: 
             self.var_statnr.set(self.saved["status_nr"])
 
-        # Buttons
         btn_box = ctk.CTkFrame(scroll, fg_color="transparent")
         btn_box.pack(pady=20, fill="x")
         ctk.CTkButton(btn_box, text=self.t("btn_logs"), command=self.show_log_window, fg_color="gray40").pack(side="left", padx=5, expand=True)
@@ -459,13 +455,15 @@ class ModernApp(ctk.CTk):
         self.lbl_save_status.pack(pady=(0, 20))
 
     def setup_tab_run(self):
-        # --- 1. URL Section (Moved from Settings) ---
-        self.url_entries = [] # Reset list logic
+        self.url_entries = []
         f_url_header = ctk.CTkFrame(self.tab_run, fg_color="transparent")
         f_url_header.pack(fill="x", padx=10, pady=(10, 0))
-        ctk.CTkLabel(f_url_header, text=self.t("sec_urls"), font=("Arial", 16, "bold")).pack(side="left")
         
-        self.scroll_urls = ctk.CTkScrollableFrame(self.tab_run, height=100)
+        ctk.CTkLabel(f_url_header, text=self.t("sec_urls"), font=("Arial", 16, "bold")).pack(side="left")
+        ctk.CTkButton(f_url_header, text=self.t("btn_scan"), width=120, command=self.scan_courses).pack(side="right")
+        
+        # Fixed Height Frame (Pre-dynamic logic)
+        self.scroll_urls = ctk.CTkScrollableFrame(self.tab_run, height=150) 
         self.scroll_urls.pack(fill="x", padx=10, pady=5)
         
         self.frame_urls_container = ctk.CTkFrame(self.scroll_urls, fg_color="transparent")
@@ -476,27 +474,22 @@ class ModernApp(ctk.CTk):
         else:
             for url in saved_urls: self.add_url_row(url)
             
-        ctk.CTkButton(self.scroll_urls, text=self.t("btn_add_url"), command=lambda: self.add_url_row(""), height=25).pack(pady=5)
+        ctk.CTkButton(self.tab_run, text=self.t("btn_add_url"), command=lambda: self.add_url_row(""), height=25).pack(padx=10, pady=0, fill="x")
 
-        # --- 2. Action Section ---
-        f_scan = ctk.CTkFrame(self.tab_run)
-        f_scan.pack(fill="x", padx=10, pady=10)
-        ctk.CTkLabel(f_scan, text="Update:").pack(side="left", padx=10)
-        ctk.CTkButton(f_scan, text=self.t("btn_scan"), command=self.scan_courses).pack(side="right", padx=10)
-
-        # --- 3. Courses List ---
         self.scroll_courses = ctk.CTkScrollableFrame(self.tab_run, label_text=self.t("lbl_choose"))
-        self.scroll_courses.pack(fill="both", expand=True, padx=10, pady=5)
+        self.scroll_courses.pack(fill="both", expand=True, padx=10, pady=10)
         self.course_checkboxes = []
 
-        # --- 4. Footer & Controls ---
-        self.lbl_status = ctk.CTkLabel(self.tab_run, text=self.t("status_ready"), font=("Arial", 14))
+        f_footer = ctk.CTkFrame(self.tab_run, fg_color="transparent")
+        f_footer.pack(fill="x", padx=10, pady=(0, 10))
+
+        self.lbl_status = ctk.CTkLabel(f_footer, text=self.t("status_ready"), font=("Arial", 14))
         self.lbl_status.pack(pady=5)
-        self.lbl_gif = ctk.CTkLabel(self.tab_run, text="")
+        self.lbl_gif = ctk.CTkLabel(f_footer, text="")
         self.lbl_gif.pack(pady=5)
 
-        f_btn = ctk.CTkFrame(self.tab_run, fg_color="transparent")
-        f_btn.pack(fill="x", padx=10, pady=20)
+        f_btn = ctk.CTkFrame(f_footer, fg_color="transparent")
+        f_btn.pack(fill="x", pady=5)
         self.btn_start = ctk.CTkButton(f_btn, text=self.t("btn_start"), command=self.start_bots, font=("Arial", 16, "bold"), height=50, fg_color="green", hover_color="darkgreen")
         self.btn_start.pack(side="left", fill="x", expand=True, padx=5)
         self.btn_stop = ctk.CTkButton(f_btn, text=self.t("btn_stop"), command=self.stop_bots, font=("Arial", 16, "bold"), height=50, fg_color="darkred", hover_color="red", state="disabled")
@@ -524,9 +517,7 @@ class ModernApp(ctk.CTk):
                 if v.startswith(prefix): combo.set(v); return
 
     def save_data(self):
-        # Gather URLs (now in Tab 1, but we can access them via self.url_entries)
         url_list = []
-        # Filter out destroyed entries just in case
         for e in self.url_entries:
             try:
                 if e.get().strip(): url_list.append(e.get())
@@ -538,7 +529,7 @@ class ModernApp(ctk.CTk):
             "ort": self.e_ort.get(), "iban": self.e_iban.get(),
             "bic": self.e_bic.get(), "inhaber": self.e_inhaber.get(),
             "geschlecht": self.c_sex.get(), "status": self.c_status.get(),
-            "status_nr": self.var_statnr.get(), # Use var instead of entry
+            "status_nr": self.var_statnr.get(), 
             "url_list": url_list,
             "language": self.current_lang
         }
